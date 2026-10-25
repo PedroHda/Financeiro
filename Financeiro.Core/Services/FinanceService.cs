@@ -32,10 +32,11 @@ public sealed class FinanceService
         RecalculateCardLimits();
     }
 
-    public DashboardSummary GetDashboardSummary()
+    public DashboardSummary GetDashboardSummary(DateTime? referenceMonth = null)
     {
         RefreshDerivedData();
-        var start = new DateTime(DateTime.Today.Year, DateTime.Today.Month, 1);
+        var reference = referenceMonth ?? DateTime.Today;
+        var start = new DateTime(reference.Year, reference.Month, 1);
         var end = start.AddMonths(1).AddDays(-1);
         var month = start.ToString("yyyy-MM");
 
@@ -76,9 +77,9 @@ public sealed class FinanceService
             monthlyExpense > monthlyIncome);
     }
 
-    public DataTable GetDashboardCategoryExpenses()
+    public DataTable GetDashboardCategoryExpenses(DateTime? referenceMonth = null)
     {
-        var month = DateTime.Today.ToString("yyyy-MM");
+        var month = (referenceMonth ?? DateTime.Today).ToString("yyyy-MM");
         return _repository.Query(
             """
             SELECT Categoria, ROUND(SUM(Total), 2) AS Total

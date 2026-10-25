@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Financeiro.Core/Financeiro.Core.csproj" />
   <Project Path="FinanceiroApp.Tests/FinanceiroApp.Tests.csproj" />
   <Project Path="FinanceiroApp/FinanceiroApp.csproj" />
 </Solution>

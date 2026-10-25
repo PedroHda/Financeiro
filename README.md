@@ -4,6 +4,22 @@ Aplicativo desktop de controle financeiro pessoal em **C# com Windows Forms e .N
 
 O projeto possui uma solução **`.sln` para o Visual Studio 2026**. O botão **Novo registro** abre um pop-up com os campos específicos do cadastro.
 
+## Android e APK
+
+Agora há também um aplicativo **Android nativo em C# / .NET 10**, com navegação inferior, dashboard, extrato pesquisável, contas, cartões, faturas, metas, orçamentos, recorrências, parcelas, categorias, relatórios e backup. Possui tema claro/escuro e ocultação de valores.
+
+As duas interfaces utilizam a biblioteca **Financeiro.Core**, com as mesmas regras financeiras e formato de banco SQLite. Os bancos ficam separados por aparelho; a transferência de dados ocorre por exportação/restauração de backup, sem sincronização automática.
+
+Para gerar o APK assinado no Windows:
+
+```powershell
+.\scripts\Build-Android.ps1
+```
+
+Resultado: `artifacts/apk/Financeiro-Android.apk`, acompanhado do checksum SHA-256. A solução Android é **Financeiro.Mobile.sln**; a solução **Financeiro.sln** continua voltada ao desktop e aos testes.
+
+Veja instalação no celular, requisitos Android, assinatura e referências de design em **[docs/ANDROID.md](docs/ANDROID.md)**.
+
 ## Índice
 
 - [Tecnologias e requisitos](#tecnologias-e-requisitos)
@@ -28,6 +44,8 @@ O projeto possui uma solução **`.sln` para o Visual Studio 2026**. O botão **
 | --- | --- |
 | C# / .NET 10 | Linguagem e plataforma de execução |
 | Windows Forms | Interface desktop do Windows |
+| .NET for Android | Interface Android nativa e APK |
+| Financeiro.Core | Regras e persistência compartilhadas entre Windows e Android |
 | `net10.0-windows` | Framework de destino |
 | Microsoft.Data.Sqlite `10.0.13` | Acesso ao banco de dados |
 | SQLitePCLRaw.bundle_e_sqlite3 `3.0.5` | Distribuição da biblioteca nativa SQLite |
@@ -210,6 +228,9 @@ O banco e os backups não são criptografados. Não há login ou sincronização
 Financeiro/
 |-- Financeiro.sln                 # Solucao principal para Visual Studio
 |-- Financeiro.slnx                # Alternativa em XML
+|-- Financeiro.Mobile.sln          # Solucao Android
+|-- Financeiro.Core/               # Modelos, SQLite e servicos compartilhados
+|-- Financeiro.Mobile/             # Interface Android nativa
 |-- global.json                   # Selecao do SDK .NET 10
 |-- .editorconfig                 # Convencoes de edicao
 |-- README.md
@@ -217,19 +238,13 @@ Financeiro/
 |-- FinanceiroApp/
 |   |-- FinanceiroApp.csproj
 |   |-- Program.cs                # Cultura pt-BR e inicializacao
-|   |-- Models/AppModels.cs       # Entradas, filtros e resumos
-|   |-- Data/AppDatabase.cs       # Schema SQLite e Repository
-|   |-- Services/
-|   |   |-- FinanceService.cs     # Regras e consultas financeiras
-|   |   `-- DatabaseBackupService.cs
 |   |-- Helpers/
 |   |   |-- Ui.cs                 # Controles, estilos e tabelas
-|   |   `-- FinancialFormatting.cs
 |   `-- Views/                    # Janela principal, modais e telas
 `-- FinanceiroApp.Tests/           # Testes com bancos temporarios isolados
 ```
 
-As telas coletam valores e chamam os serviços. `FinanceService` valida, consulta e recalcula saldos/limites. `Repository` usa comandos parametrizados. Operações compostas, como criação de parcelas e pagamento de faturas, usam transações.
+As telas coletam valores e chamam os serviços de `Financeiro.Core`. `FinanceService` valida, consulta e recalcula saldos/limites. `Repository` usa comandos parametrizados. Operações compostas, como criação de parcelas e pagamento de faturas, usam transações. Modelos, formatação financeira e backups também ficam na biblioteca compartilhada.
 
 O schema possui 13 tabelas: `Accounts`, `Categories`, `Incomes`, `Expenses`, `RecurringExpenses`, `InstallmentGroups`, `CreditCards`, `CardPurchases`, `Invoices`, `Budgets`, `Goals`, `GoalContributions` e `Settings`. Chaves estrangeiras preservam vínculos, e há índices para datas, status e competências.
 
@@ -298,7 +313,7 @@ A publicação não inclui seus dados pessoais. O aplicativo continua usando o b
 
 Recursos ainda não implementados ou parciais:
 
-- Tema escuro: a preferência é armazenada, mas a interface utiliza o tema claro.
+- Tema escuro no desktop: a preferência é armazenada, mas a interface Windows utiliza o tema claro. O Android já aplica temas claro e escuro.
 - Moeda e data personalizadas: o app usa BRL e `DD/MM/AAAA`; alterar a preferência de data não modifica todos os controles.
 - Exportação nativa Excel (`.xlsx`), PDF e impressão.
 - Gráficos de linha e comparativos: evolução mensal e comparativos estão em tabelas; o dashboard tem barras por categoria.

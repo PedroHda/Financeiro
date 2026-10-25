@@ -5,21 +5,28 @@ namespace FinanceiroApp.Views;
 
 public sealed class MainForm : Form
 {
-    private readonly FinanceService _service = new();
+    private readonly FinanceService _service;
     private readonly Panel _workspace = new() { Dock = DockStyle.Fill, BackColor = Ui.Background };
     private readonly FlowLayoutPanel _menu = new()
     {
         Dock = DockStyle.Fill,
         FlowDirection = FlowDirection.TopDown,
         WrapContents = false,
+        AutoScroll = true,
         Padding = new Padding(8)
     };
 
     private readonly Dictionary<string, Func<UserControl>> _views;
-    private Button? _activeButton;
+    private string? _activeViewKey;
+    private bool _hideDashboardValues;
 
-    public MainForm()
+    public MainForm() : this(new FinanceService())
     {
+    }
+
+    internal MainForm(FinanceService service)
+    {
+        _service = service;
         Text = "Financeiro Pessoal";
         MinimumSize = new Size(1180, 720);
         StartPosition = FormStartPosition.CenterScreen;
@@ -29,7 +36,7 @@ public sealed class MainForm : Form
 
         _views = new Dictionary<string, Func<UserControl>>
         {
-            ["Dashboard"] = () => new DashboardView(_service),
+            ["Dashboard"] = () => new DashboardView(_service, OpenNewEntry) { ValuesHidden = _hideDashboardValues },
             ["Contas"] = () => new AccountsView(_service),
             ["Categorias"] = () => new CategoriesView(_service),
             ["Receitas"] = () => new IncomesView(_service),
@@ -99,28 +106,86 @@ public sealed class MainForm : Form
 
     private void ShowView(string key)
     {
-        if (!_views.TryGetValue(key, out var factory))
+        if (key == _activeViewKey || !_views.TryGetValue(key, out var factory))
         {
             return;
         }
 
-        foreach (Button button in _menu.Controls.OfType<Button>())
+        if (_workspace.Controls.OfType<DashboardView>().FirstOrDefault() is { } dashboard)
         {
-            button.BackColor = button.Tag?.ToString() == key ? Ui.Primary : Ui.PrimaryDark;
-            if (button.Tag?.ToString() == key)
-            {
-                _activeButton = button;
-            }
+            _hideDashboardValues = dashboard.ValuesHidden;
         }
 
+        UserControl? view = null;
+        var previousViews = _workspace.Controls.Cast<Control>().ToArray();
         _workspace.SuspendLayout();
-        _workspace.Controls.Clear();
-        var view = factory();
-        _workspace.Controls.Add(view);
-        if (view is IAppView appView)
+        try
         {
-            appView.RefreshData();
+            view = factory();
+            _workspace.Controls.Add(view);
+            if (view is IAppView appView)
+            {
+                appView.RefreshData();
+            }
+
+            view.BringToFront();
+            foreach (var previousView in previousViews)
+            {
+                previousView.Dispose();
+            }
+
+            _activeViewKey = key;
+            foreach (var button in _menu.Controls.OfType<Button>())
+            {
+                button.BackColor = button.Tag?.ToString() == key ? Ui.Primary : Ui.PrimaryDark;
+                button.AccessibleDescription = button.Tag?.ToString() == key ? "Tela atual" : null;
+            }
         }
-        _workspace.ResumeLayout();
+        catch (Exception ex)
+        {
+            view?.Dispose();
+            Ui.ShowError(ex);
+        }
+        finally
+        {
+            _workspace.ResumeLayout(true);
+        }
+    }
+
+    private void OpenNewEntry(string key)
+    {
+        ShowView(key);
+        if (_activeViewKey != key || _workspace.Controls.Count != 1)
+        {
+            return;
+        }
+
+        // Reuse the existing entry dialogs without duplicating their fields or validation.
+        var createButton = Descendants(_workspace.Controls[0]).OfType<Button>()
+            .FirstOrDefault(button => button.Text == "Novo registro");
+        if (createButton is null)
+        {
+            return;
+        }
+
+        BeginInvoke((Action)(() =>
+        {
+            if (!IsDisposed && _activeViewKey == key && !createButton.IsDisposed)
+            {
+                createButton.PerformClick();
+            }
+        }));
+    }
+
+    private static IEnumerable<Control> Descendants(Control parent)
+    {
+        foreach (Control child in parent.Controls)
+        {
+            yield return child;
+            foreach (var descendant in Descendants(child))
+            {
+                yield return descendant;
+            }
+        }
     }
 }
