@@ -1,4 +1,7 @@
 <Solution>
+  <Project Path="Financeiro.Api/Financeiro.Api.csproj" />
+  <Project Path="Financeiro.Api.Tests/Financeiro.Api.Tests.csproj" />
+  <Project Path="Financeiro.Sync.Contracts/Financeiro.Sync.Contracts.csproj" />
   <Project Path="Financeiro.Core/Financeiro.Core.csproj" />
   <Project Path="FinanceiroApp.Tests/FinanceiroApp.Tests.csproj" />
   <Project Path="FinanceiroApp/FinanceiroApp.csproj" />

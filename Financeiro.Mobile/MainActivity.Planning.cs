@@ -14,6 +14,7 @@ public partial class MainActivity : Activity
     {
         Heading("Planejamento", _month.ToString("MMMM 'de' yyyy"));
         MonthPicker();
+        MenuRow("Previsão de saldo", "Próximos seis meses", "\ue6c4", () => Navigate("forecast"));
 
         var budgets = _service.SearchBudgets(_month.ToString("yyyy-MM", CultureInfo.InvariantCulture));
         var goals = _service.SearchGoals("");

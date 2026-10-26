@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 
 namespace FinanceiroApp.Data;
 
-public sealed class AppDatabase
+public sealed partial class AppDatabase
 {
     public string DatabasePath { get; }
 
@@ -44,16 +44,24 @@ public sealed class AppDatabase
     public void Initialize()
     {
         using var connection = CreateConnection();
+        DatabaseMigrations.Apply(this, connection);
         using var command = connection.CreateCommand();
         command.CommandText = SchemaSql;
         command.ExecuteNonQuery();
+        InitializeExtensions(connection);
 
         EnsureDefaults(connection);
+        command.CommandText = $"PRAGMA user_version={DatabaseMigrations.CurrentVersion};";
+        command.ExecuteNonQuery();
     }
 
     internal static void ValidateBackup(SqliteConnection connection)
     {
         using var command = connection.CreateCommand();
+        command.CommandText = "PRAGMA user_version;";
+        var backupVersion = Convert.ToInt32(command.ExecuteScalar());
+        if (backupVersion > DatabaseMigrations.CurrentVersion)
+            throw new InvalidOperationException("Atualize o aplicativo para restaurar este backup.");
         command.CommandText = "PRAGMA quick_check;";
         if (!string.Equals(Convert.ToString(command.ExecuteScalar()), "ok", StringComparison.OrdinalIgnoreCase))
         {
@@ -65,6 +73,7 @@ public sealed class AppDatabase
         using var schema = expected.CreateCommand();
         schema.CommandText = SchemaSql;
         schema.ExecuteNonQuery();
+        if (backupVersion >= 1) InitializeExtensions(expected);
         schema.CommandText = "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%';";
         using var tables = schema.ExecuteReader();
         while (tables.Read())
@@ -150,8 +159,8 @@ public sealed class AppDatabase
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL,
             Type TEXT NOT NULL,
-            InitialBalance REAL NOT NULL DEFAULT 0,
-            CurrentBalance REAL NOT NULL DEFAULT 0,
+            InitialBalance INTEGER NOT NULL DEFAULT 0,
+            CurrentBalance INTEGER NOT NULL DEFAULT 0,
             IsActive INTEGER NOT NULL DEFAULT 1,
             Notes TEXT NOT NULL DEFAULT '',
             CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -170,7 +179,7 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS Incomes (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Description TEXT NOT NULL,
-            Amount REAL NOT NULL,
+            Amount INTEGER NOT NULL,
             ReceivedDate TEXT NOT NULL,
             CategoryId INTEGER NOT NULL REFERENCES Categories(Id) ON DELETE RESTRICT,
             AccountId INTEGER NOT NULL REFERENCES Accounts(Id) ON DELETE RESTRICT,
@@ -183,7 +192,7 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS Expenses (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Description TEXT NOT NULL,
-            Amount REAL NOT NULL,
+            Amount INTEGER NOT NULL,
             ExpenseDate TEXT NOT NULL,
             DueDate TEXT NOT NULL,
             CategoryId INTEGER NOT NULL REFERENCES Categories(Id) ON DELETE RESTRICT,
@@ -202,7 +211,7 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS RecurringExpenses (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Description TEXT NOT NULL,
-            Amount REAL NOT NULL,
+            Amount INTEGER NOT NULL,
             DayOfMonth INTEGER NOT NULL,
             CategoryId INTEGER NOT NULL REFERENCES Categories(Id) ON DELETE RESTRICT,
             AccountId INTEGER NOT NULL REFERENCES Accounts(Id) ON DELETE RESTRICT,
@@ -217,7 +226,7 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS InstallmentGroups (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Description TEXT NOT NULL,
-            TotalAmount REAL NOT NULL,
+            TotalAmount INTEGER NOT NULL,
             InstallmentCount INTEGER NOT NULL,
             FirstDueDate TEXT NOT NULL,
             CategoryId INTEGER NOT NULL REFERENCES Categories(Id) ON DELETE RESTRICT,
@@ -230,8 +239,8 @@ public sealed class AppDatabase
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL,
             Institution TEXT NOT NULL DEFAULT '',
-            TotalLimit REAL NOT NULL,
-            AvailableLimit REAL NOT NULL,
+            TotalLimit INTEGER NOT NULL,
+            AvailableLimit INTEGER NOT NULL,
             ClosingDay INTEGER NOT NULL,
             DueDay INTEGER NOT NULL,
             IsActive INTEGER NOT NULL DEFAULT 1,
@@ -241,7 +250,7 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS CardPurchases (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Description TEXT NOT NULL,
-            Amount REAL NOT NULL,
+            Amount INTEGER NOT NULL,
             PurchaseDate TEXT NOT NULL,
             CreditCardId INTEGER NOT NULL REFERENCES CreditCards(Id) ON DELETE RESTRICT,
             CategoryId INTEGER NOT NULL REFERENCES Categories(Id) ON DELETE RESTRICT,
@@ -261,7 +270,7 @@ public sealed class AppDatabase
             ClosingDate TEXT NOT NULL,
             DueDate TEXT NOT NULL,
             Status TEXT NOT NULL CHECK(Status IN ('Aberta', 'Fechada', 'Paga')),
-            TotalAmount REAL NOT NULL DEFAULT 0,
+            TotalAmount INTEGER NOT NULL DEFAULT 0,
             PaidAccountId INTEGER NULL REFERENCES Accounts(Id) ON DELETE RESTRICT,
             PaidAt TEXT NULL,
             UNIQUE(CreditCardId, InvoiceMonth)
@@ -271,7 +280,7 @@ public sealed class AppDatabase
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Month TEXT NOT NULL,
             CategoryId INTEGER NOT NULL REFERENCES Categories(Id) ON DELETE RESTRICT,
-            LimitAmount REAL NOT NULL,
+            LimitAmount INTEGER NOT NULL,
             CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(Month, CategoryId)
         );
@@ -279,8 +288,8 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS Goals (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL,
-            TargetAmount REAL NOT NULL,
-            CurrentAmount REAL NOT NULL DEFAULT 0,
+            TargetAmount INTEGER NOT NULL,
+            CurrentAmount INTEGER NOT NULL DEFAULT 0,
             TargetDate TEXT NOT NULL,
             Description TEXT NOT NULL DEFAULT '',
             Status TEXT NOT NULL DEFAULT 'Ativa',
@@ -290,7 +299,7 @@ public sealed class AppDatabase
         CREATE TABLE IF NOT EXISTS GoalContributions (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
             GoalId INTEGER NOT NULL REFERENCES Goals(Id) ON DELETE CASCADE,
-            Amount REAL NOT NULL,
+            Amount INTEGER NOT NULL,
             ContributionDate TEXT NOT NULL,
             Notes TEXT NOT NULL DEFAULT '',
             CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -327,7 +336,16 @@ public sealed class Repository
 
         using var reader = command.ExecuteReader();
         var table = new DataTable();
-        table.Load(reader);
+        for (var i = 0; i < reader.FieldCount; i++)
+            table.Columns.Add(reader.GetName(i), MoneyStorage.ResultColumns.Contains(reader.GetName(i)) ? typeof(decimal) : reader.GetFieldType(i));
+        while (reader.Read())
+        {
+            var values = new object[reader.FieldCount];
+            for (var i = 0; i < values.Length; i++)
+                values[i] = reader.IsDBNull(i) ? DBNull.Value : MoneyStorage.ResultColumns.Contains(reader.GetName(i))
+                    ? MoneyStorage.FromCents(reader.GetValue(i)) : reader.GetValue(i);
+            table.Rows.Add(values);
+        }
         return table;
     }
 
@@ -424,7 +442,7 @@ public sealed class Repository
             null => DBNull.Value,
             DateTime date => date.ToString("yyyy-MM-dd"),
             bool flag => flag ? 1 : 0,
-            decimal money => (double)money,
+            decimal money => MoneyStorage.ToCents(money),
             _ => value
         };
     }

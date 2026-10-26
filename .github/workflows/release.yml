@@ -1,0 +1,99 @@
+name: Release Packages
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version (for example 1.1.0)
+        required: true
+        default: 1.1.0
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test Financeiro.sln -c Release
+      - run: choco install innosetup --yes --no-progress
+      - shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME.TrimStart('v') }
+          ./scripts/Build-Desktop.ps1 -Version $version
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-windows
+          path: artifacts/windows/*
+  android:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+      - shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not $env:ANDROID_KEYSTORE_BASE64 -or -not $env:ANDROID_STORE_PASSWORD -or -not $env:ANDROID_KEY_ALIAS) { throw 'Configure os tres secrets de assinatura Android antes de publicar.' }
+          $version = if ($env:INPUT_VERSION) { $env:INPUT_VERSION } else { $env:GITHUB_REF_NAME.TrimStart('v') }
+          if ($version -notmatch '^(\d+)\.(\d+)\.(\d+)$') { throw 'Versao invalida.' }
+          if ([int]$Matches[2] -ge 100 -or [int]$Matches[3] -ge 100) { throw 'Minor e patch devem ser menores que 100 para o codigo Android.' }
+          $code = 10000 * [int]$Matches[1] + 100 * [int]$Matches[2] + [int]$Matches[3]
+          $key = Join-Path $env:RUNNER_TEMP 'financeiro.keystore'
+          [IO.File]::WriteAllBytes($key, [Convert]::FromBase64String($env:ANDROID_KEYSTORE_BASE64))
+          try {
+            dotnet workload install android
+            if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar workload.' }
+            sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+            if ($LASTEXITCODE -ne 0) { throw 'Falha no Android SDK.' }
+            dotnet build Financeiro.Mobile/Financeiro.Mobile.csproj -c Release -p:AndroidBuildApplicationPackage=true -p:AndroidKeyStore=false "-p:ApplicationVersion=$code" "-p:ApplicationDisplayVersion=$version" "-p:AndroidSdkDirectory=$env:ANDROID_HOME" "-p:JavaSdkDirectory=$env:JAVA_HOME"
+            if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar Android.' }
+            New-Item -ItemType Directory artifacts/apk -Force | Out-Null
+            $tools = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0'
+            & "$tools/zipalign.exe" -f -p 4 Financeiro.Mobile/bin/Release/net10.0-android/com.pedrohda.financeiro.apk artifacts/apk/aligned.apk
+            if ($LASTEXITCODE -ne 0) { throw 'Falha no alinhamento.' }
+            & "$tools/apksigner.bat" sign --ks $key --ks-key-alias $env:ANDROID_KEY_ALIAS --ks-pass env:ANDROID_STORE_PASSWORD --key-pass env:ANDROID_STORE_PASSWORD --out artifacts/apk/Financeiro-Android.apk artifacts/apk/aligned.apk
+            if ($LASTEXITCODE -ne 0) { throw 'Falha na assinatura.' }
+            & "$tools/apksigner.bat" verify artifacts/apk/Financeiro-Android.apk
+            if ($LASTEXITCODE -ne 0) { throw 'Assinatura invalida.' }
+            Remove-Item artifacts/apk/aligned.apk
+            $hash = (Get-FileHash artifacts/apk/Financeiro-Android.apk -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText((Join-Path $PWD 'artifacts/apk/Financeiro-Android.apk.sha256'), "$hash  Financeiro-Android.apk`n")
+          } finally { if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force } }
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-android
+          path: artifacts/apk/Financeiro-Android.apk*
+  publish:
+    needs: [windows, android]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: packages
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: gh release create "$RELEASE_TAG" packages/* --generate-notes --verify-tag

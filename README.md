@@ -4,11 +4,23 @@ Aplicativo desktop de controle financeiro pessoal em **C# com Windows Forms e .N
 
 O projeto possui uma solução **`.sln` para o Visual Studio 2026**. O botão **Novo registro** abre um pop-up com os campos específicos do cadastro.
 
+## Novidades da versão 1.1
+
+- Dinheiro persistido em **centavos inteiros**, com migração automática e cópia de recuperação dos bancos antigos.
+- **Operacoes** no Windows e **Mais > Operações** no Android: transferências internas, conciliação, importação de OFX/CSV com prévia, regras de categorias e previsão de saldo.
+- Duplicação de lançamentos, alteração de status em lote no Windows, rateio entre categorias e comprovantes de até 5 MB.
+- PIN local, bloqueio após dois minutos de inatividade no Windows ou em segundo plano no Android, e biometria Android compatível.
+- Backups opcionais `.finbackup`, protegidos com senha e criptografia autenticada.
+- API opcional **ASP.NET Core 10 + EF Core + PostgreSQL**, clientes de sincronização e resolução explícita de conflitos. O uso offline continua disponível sem conta.
+- Scripts de pacotes Windows/Android, testes automatizados, CI e workflow de releases.
+
+Guias: **[novas operações](docs/OPERACOES.md)**, **[segurança](docs/SEGURANCA.md)**, **[sincronização e servidor](docs/SINCRONIZACAO.md)** e **[distribuição](docs/DISTRIBUICAO.md)**.
+
 ## Android e APK
 
 Agora há também um aplicativo **Android nativo em C# / .NET 10**, com navegação inferior, dashboard, extrato pesquisável, contas, cartões, faturas, metas, orçamentos, recorrências, parcelas, categorias, relatórios e backup. Possui tema claro/escuro e ocultação de valores.
 
-As duas interfaces utilizam a biblioteca **Financeiro.Core**, com as mesmas regras financeiras e formato de banco SQLite. Os bancos ficam separados por aparelho; a transferência de dados ocorre por exportação/restauração de backup, sem sincronização automática.
+As duas interfaces utilizam a biblioteca **Financeiro.Core**, com as mesmas regras financeiras e formato de banco SQLite. Os bancos ficam separados por aparelho. É possível transferir um backup ou conectar ambos à mesma conta de um servidor de sincronização próprio. O servidor não é hospedado automaticamente pelo projeto.
 
 Para gerar o APK assinado no Windows:
 
@@ -51,6 +63,9 @@ Veja instalação no celular, requisitos Android, assinatura e referências de d
 | SQLitePCLRaw.bundle_e_sqlite3 `3.0.5` | Distribuição da biblioteca nativa SQLite |
 | xUnit / Microsoft.NET.Test.Sdk | Testes automatizados e integração com o Visual Studio |
 | Coverlet | Coleta opcional de cobertura de testes |
+| ASP.NET Core / EF Core 10 | API opcional, autenticação e persistência do servidor |
+| PostgreSQL / Npgsql | Banco do servidor de sincronização |
+| OFXSharp / TextFieldParser | Leitura estruturada de extratos OFX e CSV |
 
 Para desenvolver e compilar:
 
@@ -220,7 +235,7 @@ Antes da substituição, são verificadas integridade SQLite, tabelas, colunas n
 
 Esse arquivo também pode ser selecionado em **Restaurar**, usando a opção de todos os arquivos do seletor. Uma nova restauração substitui essa cópia de recuperação.
 
-O banco e os backups não são criptografados. Não há login ou sincronização na nuvem. Arquivos de dados e backups estão excluídos do Git pelo `.gitignore`.
+O banco local e os backups `.db` não são criptografados. Use **Backup protegido** para gerar um `.finbackup` com senha. O PIN protege a interface, não cifra o banco. Credenciais bancárias nunca são solicitadas. Arquivos de dados, chaves e backups estão excluídos do Git pelo `.gitignore`.
 
 ## Estrutura e arquitetura
 
@@ -231,6 +246,12 @@ Financeiro/
 |-- Financeiro.Mobile.sln          # Solucao Android
 |-- Financeiro.Core/               # Modelos, SQLite e servicos compartilhados
 |-- Financeiro.Mobile/             # Interface Android nativa
+|-- Financeiro.Sync.Contracts/     # Protocolo compartilhado de sincronizacao
+|-- Financeiro.Api/                # API opcional ASP.NET Core / PostgreSQL
+|-- Financeiro.Api.Tests/          # Integracao da API e de dois aparelhos
+|-- deploy/                       # Docker Compose, PostgreSQL e HTTPS
+|-- scripts/                      # Pacotes Windows, Android e smoke test
+|-- .github/workflows/             # Testes, pacotes e releases
 |-- global.json                   # Selecao do SDK .NET 10
 |-- .editorconfig                 # Convencoes de edicao
 |-- README.md
@@ -246,9 +267,9 @@ Financeiro/
 
 As telas coletam valores e chamam os serviços de `Financeiro.Core`. `FinanceService` valida, consulta e recalcula saldos/limites. `Repository` usa comandos parametrizados. Operações compostas, como criação de parcelas e pagamento de faturas, usam transações. Modelos, formatação financeira e backups também ficam na biblioteca compartilhada.
 
-O schema possui 13 tabelas: `Accounts`, `Categories`, `Incomes`, `Expenses`, `RecurringExpenses`, `InstallmentGroups`, `CreditCards`, `CardPurchases`, `Invoices`, `Budgets`, `Goals`, `GoalContributions` e `Settings`. Chaves estrangeiras preservam vínculos, e há índices para datas, status e competências.
+O schema original foi ampliado com transferências, conciliações, histórico de importação, regras, rateios, comprovantes e metadados de sincronização. Chaves estrangeiras preservam vínculos, e há índices para datas, status e competências.
 
-Datas são persistidas como texto ISO (`AAAA-MM-DD`) e competências como `AAAA-MM`. Valores monetários estão em colunas `REAL`; os serviços usam `decimal` e validam centavos. Migrar a persistência para centavos inteiros é uma melhoria planejada para eliminar a representação binária de dinheiro no banco.
+Datas são persistidas como texto ISO (`AAAA-MM-DD`) e competências como `AAAA-MM`. Valores monetários são armazenados como `INTEGER` em centavos; serviços e interfaces usam `decimal`. O repositório converte valores apenas na entrada/saída, e as somas SQL operam em inteiros. `PRAGMA user_version` controla a versão local. Na primeira abertura de um banco legado `REAL`, uma migração transacional preserva IDs/vínculos e cria `financeiro.db.before-migration-v1`. Bancos de versões futuras são recusados para evitar conversões incorretas. Faça também seu próprio backup antes de atualizar; versões antigas do aplicativo não devem abrir o banco migrado.
 
 ## Testes
 
@@ -261,6 +282,8 @@ No Visual Studio 2026, use **Teste > Gerenciador de Testes > Executar Todos**.
 Os testes usam arquivos SQLite próprios em `%TEMP%\FinanceiroApp.Tests\<identificador>` e removem somente sua pasta temporária. Não acessam nem limpam o banco pessoal em `%LOCALAPPDATA%`.
 
 A cobertura inclui saldos, status, parcelas/centavos, recorrências, limites, pagamento de fatura, filtros, metas, orçamentos, leitura monetária, largura do painel de cadastro e backup/restauração, inclusive arquivo inválido e snapshot WAL.
+
+Há testes adicionais de migração, transferências, importação atômica, duplicidades, conciliação, previsão, rateios, comprovantes, backup criptografado, PIN e sincronização de bancos independentes com conflitos e isolamento entre usuários. A API é testada em SQLite isolado; PostgreSQL e implantação Docker exigem validação no ambiente de hospedagem. A compilação/assinatura do APK não substitui o teste em aparelho real. O CI contém um smoke Android em emulador com capturas de tela.
 
 Para coletar cobertura:
 
@@ -276,6 +299,14 @@ Execute na raiz do repositório. Publique o projeto do aplicativo, e não a solu
 
 ### Windows x64 com runtime incluído
 
+Para gerar um ZIP portátil e, quando Inno Setup 6 estiver instalado, um instalador:
+
+```powershell
+.\scripts\Build-Desktop.ps1
+```
+
+Os pacotes e checksums ficam em `artifacts/windows`. O instalador não remove o banco pessoal na desinstalação. Os executáveis não possuem assinatura Authenticode.
+
 ```powershell
 dotnet publish .\FinanceiroApp\FinanceiroApp.csproj --configuration Release --runtime win-x64 --self-contained true --output .\artifacts\publish\win-x64
 ```
@@ -290,7 +321,7 @@ dotnet publish .\FinanceiroApp\FinanceiroApp.csproj --configuration Release --ru
 
 Essa variante exige **.NET Desktop Runtime 10** no destino. Para outra arquitetura, utilize um identificador de runtime correspondente e valide no computador de destino.
 
-A publicação não inclui seus dados pessoais. O aplicativo continua usando o banco do usuário em `%LOCALAPPDATA%`. Não há instalador, atualização automática ou assinatura do executável nesta versão.
+A publicação não inclui seus dados pessoais. O aplicativo continua usando o banco do usuário em `%LOCALAPPDATA%`. O instalador é opcional; atualização automática e assinatura Authenticode ainda não estão implementadas.
 
 ## Solução de problemas
 
@@ -318,8 +349,9 @@ Recursos ainda não implementados ou parciais:
 - Exportação nativa Excel (`.xlsx`), PDF e impressão.
 - Gráficos de linha e comparativos: evolução mensal e comparativos estão em tabelas; o dashboard tem barras por categoria.
 - Identificação e remoção exclusiva dos dados de demonstração; a limpeza atual é geral.
-- Migrações versionadas do schema e dinheiro persistido em centavos inteiros.
-- Transferências entre contas, conciliação, importação bancária e sincronização.
+- Conexão direta com bancos/Open Finance, execução real de Pix e transferências bancárias. As transferências do app são registros internos.
+- Sincronização em segundo plano com o aplicativo fechado, hospedagem gerenciada e integração com provedor externo de identidade.
+- Verificação ponta a ponta da implantação PostgreSQL/Docker e testes reais de biometria/aparelhos Android.
 - Estornos, reabertura de fatura, edição do parcelamento completo e exclusão de uma série inteira.
 - Vinculação de aportes de metas a movimentações reais de contas.
 - Aplicação visual de ícones/cores de categorias e uniformização dos filtros entre módulos.

@@ -19,12 +19,14 @@ public partial class MainActivity
         Heading("Mais", "Tudo o que faz parte do seu controle.");
         MenuRow("Relatórios", "Resultados, categorias e evolução", "\ue26b", () => Navigate("reports"));
         MenuRow("Categorias", "Receitas e despesas organizadas", "\ue574", () => Navigate("categories"));
+        MenuRow("Operações", "Extratos, transferências e conciliação", "\ue8d5", () => Navigate("operations"));
+        MenuRow("Sincronização", "Computador e celular", "\ue627", () => Navigate("sync"));
         MenuRow("Preferências e backup", "Aparência, privacidade e seus dados", "\ue8b8", () => Navigate("settings"));
         Section("Financeiro");
         var about = _ui.Card();
         about.AddView(_ui.Text("Seu dinheiro. Seu controle.", 18, bold: true));
         _ui.Gap(about, 8);
-        Pair(about, "Versão", "1.0.0 • Android");
+        Pair(about, "Versão", AppVersionName + " • Android");
         _ui.Gap(about, 8);
         Pair(about, "Moeda", "Real brasileiro");
         _content.AddView(about);
@@ -158,6 +160,9 @@ public partial class MainActivity
         });
         _content.AddView(appearance);
         Section("Seus dados");
+        MenuRow("Segurança", "PIN e biometria", "\ue897", () => Navigate("security"));
+        MenuRow("Backup protegido", "Exportar com senha", "\ue2c4", ExportEncryptedBackup);
+        MenuRow("Restaurar backup protegido", "Importar com senha", "\ue2c6", ImportEncryptedBackup);
         MenuRow("Exportar backup", "Salvar uma cópia do banco", "\ue2c4", ExportBackup);
         MenuRow("Restaurar backup", "Importar um banco do Android ou Windows", "\ue2c6", ImportBackup);
         if (File.Exists(_service.DatabasePath + ".before-restore"))
@@ -175,7 +180,7 @@ public partial class MainActivity
         MenuRow("Apagar dados financeiros", "Excluir contas e todos os lançamentos", "\ue872", () => Confirm("Apagar todos os dados?", "Contas, receitas, despesas, cartões, metas e orçamentos serão removidos. Categorias e preferências serão mantidas. Faça um backup antes.", () => { _service.ClearFinancialData(); RefreshPage(); Notice("Dados financeiros removidos"); }));
         Section("Sobre");
         var details = _ui.Card();
-        Pair(details, "Versão", "1.0.0");
+        Pair(details, "Versão", AppVersionName);
         _ui.Gap(details, 10);
         Pair(details, "Moeda", "BRL • R$");
         _ui.Gap(details, 10);
@@ -263,8 +268,14 @@ public partial class MainActivity
         if (requestCode != 501) return;
         var callback = _documentAction;
         _documentAction = null;
-        if (resultCode == Result.Ok && data?.Data is { } uri && callback is not null) Run(() => callback(uri));
+        if (resultCode == Result.Ok && data?.Data is { } uri && callback is not null)
+        {
+            if (_appLock.Enabled && (!_authenticated || _backgroundAt != default && DateTime.UtcNow - _backgroundAt >= TimeSpan.FromMinutes(2)))
+            { _afterUnlock = () => Run(() => callback(uri)); LockMobile(); }
+            else Run(() => callback(uri));
+        }
     }
 
     private void Notice(string text) => Toast.MakeText(this, text, ToastLength.Short)?.Show();
+    private string AppVersionName => PackageManager!.GetPackageInfo(PackageName!, (Android.Content.PM.PackageInfoFlags)0)?.VersionName ?? "1.1.0";
 }

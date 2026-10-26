@@ -1,0 +1,14 @@
+.git
+**/bin
+**/obj
+**/private
+artifacts
+.vs
+.env
+.env.*
+**/*.db*
+**/*.finbackup
+**/*.keystore
+**/*.jks
+**/*.lock.json
+**/*.pfx

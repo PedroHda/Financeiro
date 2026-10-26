@@ -66,6 +66,7 @@ public sealed class IncomesView : BaseView
         toolbar.Controls.Add(Ui.Button("Filtrar", (_, _) => RefreshData()));
         toolbar.Controls.Add(Ui.Button("Limpar", (_, _) => ClearFilters()));
         toolbar.Controls.Add(Ui.Button("Exportar CSV", (_, _) => Run(Export)));
+        EntryActions.Add(toolbar, Service, _grid, "income", RefreshData);
 
         var listPanel = SurfacePanel();
         listPanel.Controls.Add(_grid);
@@ -310,6 +311,7 @@ public sealed class ExpensesView : BaseView
         toolbar.Controls.Add(Ui.Button("Filtrar", (_, _) => RefreshData()));
         toolbar.Controls.Add(Ui.Button("Limpar", (_, _) => ClearFilters()));
         toolbar.Controls.Add(Ui.Button("Exportar CSV", (_, _) => Run(Export)));
+        EntryActions.Add(toolbar, Service, _grid, "expense", RefreshData);
 
         var listPanel = SurfacePanel();
         listPanel.Controls.Add(_grid);

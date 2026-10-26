@@ -77,6 +77,14 @@ internal sealed class EntryForm
         return new MoneyField(input, label);
     }
 
+    public EditText Password(string label, bool numeric = false)
+    {
+        var input = Text(label);
+        input.InputType = numeric ? InputTypes.ClassNumber | InputTypes.NumberVariationPassword : InputTypes.ClassText | InputTypes.TextVariationPassword;
+        input.TransformationMethod = PasswordTransformationMethod.Instance;
+        return input;
+    }
+
     public IntegerField Integer(string label, int value = 1)
     {
         var input = Text(label, value.ToString(FinancialFormatting.BrazilianCulture));

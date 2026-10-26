@@ -1,0 +1,83 @@
+name: Build and Tests
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    env:
+      FINANCEIRO_UI_ARTIFACTS: artifacts/ui
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test Financeiro.sln -c Release --logger trx --results-directory artifacts/test-results
+      - run: choco install innosetup --yes --no-progress
+      - shell: pwsh
+        run: ./scripts/Build-Desktop.ps1
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: windows-and-tests
+          path: |
+            artifacts/windows/*
+            artifacts/test-results/*
+            artifacts/ui/*
+  api-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test Financeiro.Api.Tests -c Release
+  android:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+      - shell: pwsh
+        run: |
+          dotnet workload install android
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet build Financeiro.Mobile/Financeiro.Mobile.csproj -c Debug -p:RuntimeIdentifiers=android-x64 -p:AndroidBuildApplicationPackage=true "-p:AndroidSdkDirectory=$env:ANDROID_HOME" "-p:JavaSdkDirectory=$env:JAVA_HOME"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android-smoke-apk
+          path: Financeiro.Mobile/bin/Debug/net10.0-android/*-Signed.apk
+          if-no-files-found: error
+  android-smoke:
+    needs: android
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: android-smoke-apk
+          path: artifacts/smoke-apk
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          script: pwsh -NoProfile -File scripts/Test-AndroidSmoke.ps1 -Apk artifacts/smoke-apk/com.pedrohda.financeiro-Signed.apk
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: android-screenshots
+          path: artifacts/android-smoke/*

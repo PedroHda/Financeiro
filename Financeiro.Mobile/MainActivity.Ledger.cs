@@ -28,6 +28,8 @@ public partial class MainActivity
                     DateTime.Parse(Str(row, dateColumn), System.Globalization.CultureInfo.InvariantCulture), Value(row, "Valor"), Str(row, "Status")));
             }
         }
+        foreach (System.Data.DataRow row in _service.SearchTransfers(filter.StartDate, filter.EndDate).Rows)
+            items.Add(new LedgerItem("Transferência", row, Str(row, "Origem") + " → " + Str(row, "Destino"), "Transferência", "", DateTime.Parse(Str(row, "Data")), Value(row, "Valor"), "Realizada"));
         return items;
     }
 
@@ -50,7 +52,7 @@ public partial class MainActivity
         _content.AddView(search, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, _ui.Dp(50)));
         _ui.Gap(_content, 12);
         var choices = _ui.Row();
-        var type = Choice(new[] { "Todos", "Receitas", "Despesas", "Cartão" }, _ledgerType);
+        var type = Choice(new[] { "Todos", "Receitas", "Despesas", "Cartão", "Transferências" }, _ledgerType);
         var status = Choice(new[] { "Todos", "Pendentes", "Pagos", "Vencidos" }, _ledgerStatus);
         choices.AddView(type, MobileUi.Grow());
         choices.AddView(status, MobileUi.Grow());
@@ -64,7 +66,7 @@ public partial class MainActivity
         {
             list.RemoveAllViews();
             var selected = items.Where(item =>
-                (_ledgerType == "Todos" || _ledgerType == "Receitas" && item.Kind == "Receita" || _ledgerType == "Despesas" && item.Kind == "Despesa" || _ledgerType == "Cartão" && item.Kind == "Cartão") &&
+                (_ledgerType == "Todos" || _ledgerType == "Receitas" && item.Kind == "Receita" || _ledgerType == "Despesas" && item.Kind == "Despesa" || _ledgerType == "Cartão" && item.Kind == "Cartão" || _ledgerType == "Transferências" && item.Kind == "Transferência") &&
                 (_ledgerStatus == "Todos" || _ledgerStatus == "Pendentes" && item.Status is "Pendente" or "Aberta" or "Fechada" || _ledgerStatus == "Pagos" && item.Status is "Pago" or "Recebido" or "Paga" || _ledgerStatus == "Vencidos" && item.Status == "Vencido") &&
                 (item.Description + " " + item.Category + " " + item.Account).Contains(_search, StringComparison.OrdinalIgnoreCase)).OrderByDescending(item => item.Date).ToList();
             if (selected.Count == 0)
@@ -119,7 +121,7 @@ public partial class MainActivity
         var amount = _ui.Column();
         amount.SetGravity(GravityFlags.Right);
         amount.SetPadding(_ui.Dp(8), 0, 0, 0);
-        amount.AddView(_ui.Text((positive ? "+ " : "− ") + Cash(item.Amount), 13, positive ? _ui.Accent : _ui.Ink, true));
+        amount.AddView(_ui.Text((positive ? "+ " : item.Kind == "Transferência" ? "" : "− ") + Cash(item.Amount), 13, positive ? _ui.Accent : _ui.Ink, true));
         _ui.Gap(amount, 5);
         amount.AddView(_ui.Text(item.Status, 10, item.Status == "Vencido" ? _ui.Danger : _ui.Muted));
         row.AddView(amount);
@@ -129,15 +131,17 @@ public partial class MainActivity
         {
             if (item.Kind == "Receita") EditIncome(item.Row);
             else if (item.Kind == "Cartão") EditPurchase(item.Row);
+            else if (item.Kind == "Transferência") EditTransfer(item.Row);
             else EditExpense(item.Row);
         });
+        if (item.Kind is "Receita" or "Despesa") row.LongClick += (_, _) => Run(() => EntryMenu(item));
         return row;
     }
 
     private void ChooseNewTransaction()
     {
         new AlertDialog.Builder(this).SetTitle("Novo lançamento")
-            .SetItems(new[] { "Receita", "Despesa", "Compra no cartão", "Parcelamento" }, (_, e) => Run(() =>
+            .SetItems(new[] { "Receita", "Despesa", "Compra no cartão", "Parcelamento", "Transferência" }, (_, e) => Run(() =>
             {
                 switch (e.Which)
                 {
@@ -145,6 +149,7 @@ public partial class MainActivity
                     case 1: EditExpense(); break;
                     case 2: EditPurchase(); break;
                     case 3: NewInstallment(); break;
+                    case 4: EditTransfer(); break;
                 }
             })).Show();
     }

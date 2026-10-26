@@ -490,6 +490,8 @@ public sealed class SettingsView : BaseView
         actions.Controls.Add(Ui.Button("Limpar dados", (_, _) => Run(Clear)));
         actions.Controls.Add(Ui.Button("Backup", (_, _) => Run(Backup)));
         actions.Controls.Add(Ui.Button("Restaurar", (_, _) => Run(Restore)));
+        actions.Controls.Add(Ui.Button("Backup protegido", (_, _) => Run(EncryptedBackup)));
+        actions.Controls.Add(Ui.Button("Restaurar protegido", (_, _) => Run(RestoreEncryptedBackup)));
 
         var note = new Label
         {
@@ -556,5 +558,25 @@ public sealed class SettingsView : BaseView
             RefreshData();
             Ui.ShowInfo("Backup restaurado.");
         }
+    }
+
+    private void EncryptedBackup()
+    {
+        using var dialog = new SaveFileDialog { Filter = "Backup protegido (*.finbackup)|*.finbackup", FileName = $"financeiro-{DateTime.Today:yyyyMMdd}.finbackup" };
+        if (dialog.ShowDialog() != DialogResult.OK) return;
+        var password = PasswordPrompt.Ask(FindForm()!, "Senha do backup", true);
+        if (password is null) return;
+        new EncryptedBackupService(Service).Backup(dialog.FileName, password);
+        Ui.ShowInfo("Backup protegido gerado.");
+    }
+
+    private void RestoreEncryptedBackup()
+    {
+        using var dialog = new OpenFileDialog { Filter = "Backup protegido (*.finbackup)|*.finbackup" };
+        if (dialog.ShowDialog() != DialogResult.OK || MessageBox.Show("Substituir os dados atuais por este backup?", "Financeiro", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
+        var password = PasswordPrompt.Ask(FindForm()!, "Senha do backup");
+        if (password is null) return;
+        new EncryptedBackupService(Service).Restore(dialog.FileName, password);
+        RefreshData(); Ui.ShowInfo("Backup restaurado.");
     }
 }

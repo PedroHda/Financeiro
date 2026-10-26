@@ -45,6 +45,8 @@ internal sealed class DatabaseBackupService(AppDatabase database)
                 AppDatabase.ValidateBackup(target);
             }
 
+            new AppDatabase(staging).Initialize();
+
             // Keep a recoverable snapshot of the current data before replacement.
             var recovery = database.DatabasePath + ".before-restore";
             Backup(recovery);
@@ -69,6 +71,7 @@ internal sealed class DatabaseBackupService(AppDatabase database)
         finally
         {
             if (File.Exists(staging)) File.Delete(staging);
+            if (File.Exists(staging + ".before-migration-v1")) File.Delete(staging + ".before-migration-v1");
         }
     }
 

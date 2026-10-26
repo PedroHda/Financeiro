@@ -6,7 +6,7 @@ using FinanceiroApp.Models;
 
 namespace FinanceiroApp.Services;
 
-public sealed class FinanceService
+public sealed partial class FinanceService
 {
     private readonly AppDatabase _database;
     private readonly Repository _repository;
@@ -82,10 +82,10 @@ public sealed class FinanceService
         var month = (referenceMonth ?? DateTime.Today).ToString("yyyy-MM");
         return _repository.Query(
             """
-            SELECT Categoria, ROUND(SUM(Total), 2) AS Total
+            SELECT Categoria, SUM(Total) AS Total
             FROM (
                 SELECT c.Name AS Categoria, e.Amount AS Total
-                FROM Expenses e
+                FROM ExpenseAllocations e
                 JOIN Categories c ON c.Id = e.CategoryId
                 WHERE substr(e.DueDate, 1, 7) = $month
                 UNION ALL
@@ -112,12 +112,12 @@ public sealed class FinanceService
                 SELECT InvoiceMonth AS Month FROM CardPurchases
             )
             SELECT m.Month AS Mes,
-                   ROUND(COALESCE((SELECT SUM(Amount) FROM Incomes WHERE Status = 'Recebido' AND substr(ReceivedDate, 1, 7) = m.Month), 0), 2) AS Receitas,
-                   ROUND(COALESCE((SELECT SUM(Amount) FROM Expenses WHERE substr(DueDate, 1, 7) = m.Month), 0)
-                         + COALESCE((SELECT SUM(Amount) FROM CardPurchases WHERE InvoiceMonth = m.Month), 0), 2) AS Despesas,
-                   ROUND(COALESCE((SELECT SUM(Amount) FROM Incomes WHERE Status = 'Recebido' AND substr(ReceivedDate, 1, 7) = m.Month), 0)
+                   COALESCE((SELECT SUM(Amount) FROM Incomes WHERE Status = 'Recebido' AND substr(ReceivedDate, 1, 7) = m.Month), 0) AS Receitas,
+                   COALESCE((SELECT SUM(Amount) FROM Expenses WHERE substr(DueDate, 1, 7) = m.Month), 0)
+                         + COALESCE((SELECT SUM(Amount) FROM CardPurchases WHERE InvoiceMonth = m.Month), 0) AS Despesas,
+                   COALESCE((SELECT SUM(Amount) FROM Incomes WHERE Status = 'Recebido' AND substr(ReceivedDate, 1, 7) = m.Month), 0)
                          - COALESCE((SELECT SUM(Amount) FROM Expenses WHERE substr(DueDate, 1, 7) = m.Month), 0)
-                         - COALESCE((SELECT SUM(Amount) FROM CardPurchases WHERE InvoiceMonth = m.Month), 0), 2) AS Saldo
+                         - COALESCE((SELECT SUM(Amount) FROM CardPurchases WHERE InvoiceMonth = m.Month), 0) AS Saldo
             FROM months m
             ORDER BY m.Month DESC
             LIMIT 12;
@@ -162,8 +162,8 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT Id, Name AS Nome, Type AS Tipo, ROUND(InitialBalance, 2) AS SaldoInicial,
-                   ROUND(CurrentBalance, 2) AS SaldoAtual,
+            SELECT Id, Name AS Nome, Type AS Tipo, InitialBalance AS SaldoInicial,
+                   CurrentBalance AS SaldoAtual,
                    CASE IsActive WHEN 1 THEN 'Ativo' ELSE 'Inativo' END AS Status,
                    Notes AS Observacoes
             FROM Accounts
@@ -207,6 +207,9 @@ public sealed class FinanceService
         EnsureNoLinks("Expenses", "AccountId", id, "A conta possui despesas vinculadas.");
         EnsureNoLinks("RecurringExpenses", "AccountId", id, "A conta possui recorrencias vinculadas.");
         EnsureNoLinks("Invoices", "PaidAccountId", id, "A conta possui faturas pagas vinculadas.");
+        EnsureNoLinks("Transfers", "FromAccountId", id, "A conta possui transferencias vinculadas.");
+        EnsureNoLinks("Transfers", "ToAccountId", id, "A conta possui transferencias vinculadas.");
+        EnsureNoLinks("Reconciliations", "AccountId", id, "A conta possui conciliacoes vinculadas.");
         _repository.Execute("DELETE FROM Accounts WHERE Id = $id;", P("$id", id));
     }
 
@@ -258,6 +261,8 @@ public sealed class FinanceService
         EnsureNoLinks("RecurringExpenses", "CategoryId", id, "A categoria possui recorrencias vinculadas.");
         EnsureNoLinks("CardPurchases", "CategoryId", id, "A categoria possui compras no cartao vinculadas.");
         EnsureNoLinks("Budgets", "CategoryId", id, "A categoria possui orcamentos vinculados.");
+        EnsureNoLinks("ExpenseSplits", "CategoryId", id, "A categoria possui rateios vinculados.");
+        EnsureNoLinks("CategoryRules", "CategoryId", id, "A categoria possui regras de importacao vinculadas.");
         _repository.Execute("DELETE FROM Categories WHERE Id = $id;", P("$id", id));
     }
 
@@ -272,7 +277,7 @@ public sealed class FinanceService
 
         return _repository.Query(
             $"""
-            SELECT i.Id, i.Description AS Descricao, ROUND(i.Amount, 2) AS Valor, i.ReceivedDate AS Data,
+            SELECT i.Id, i.Description AS Descricao, i.Amount AS Valor, i.ReceivedDate AS Data,
                    c.Name AS Categoria, a.Name AS Conta, i.PaymentMethod AS Forma, i.Status, i.Notes AS Observacoes
             FROM Incomes i
             JOIN Categories c ON c.Id = i.CategoryId
@@ -342,7 +347,7 @@ public sealed class FinanceService
 
         return _repository.Query(
             $"""
-            SELECT e.Id, e.Description AS Descricao, ROUND(e.Amount, 2) AS Valor, e.ExpenseDate AS Data,
+            SELECT e.Id, e.Description AS Descricao, e.Amount AS Valor, e.ExpenseDate AS Data,
                    e.DueDate AS Vencimento, c.Name AS Categoria, COALESCE(a.Name, '') AS Conta,
                    COALESCE(cc.Name, '') AS Cartao, e.PaymentMethod AS Forma, e.Status,
                    CASE WHEN e.InstallmentTotal > 1 THEN e.InstallmentNumber || '/' || e.InstallmentTotal ELSE '' END AS Parcela,
@@ -370,6 +375,10 @@ public sealed class FinanceService
         RequirePositive(input.Amount, "Informe um valor valido para a despesa.");
         RequireSelected(input.CategoryId, "Selecione uma categoria de despesa.");
         EnsureCategoryType(input.CategoryId, FinanceTypes.Expense);
+
+        if (input.Id > 0 && Number("SELECT COUNT(*) FROM ExpenseSplits WHERE ExpenseId=$id;", P("$id", input.Id)) > 0
+            && Money("SELECT COALESCE(SUM(Amount),0) FROM ExpenseSplits WHERE ExpenseId=$id;", P("$id", input.Id)) != input.Amount)
+            throw new InvalidOperationException("Remova o rateio antes de alterar o valor total da despesa.");
 
         if (input.Status == FinanceStatus.Paid && input.AccountId is null or <= 0)
         {
@@ -424,7 +433,7 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT r.Id, r.Description AS Descricao, ROUND(r.Amount, 2) AS Valor, r.DayOfMonth AS Dia,
+            SELECT r.Id, r.Description AS Descricao, r.Amount AS Valor, r.DayOfMonth AS Dia,
                    c.Name AS Categoria, a.Name AS Conta, r.PaymentMethod AS Forma, r.StartDate AS Inicio,
                    COALESCE(r.EndDate, '') AS Fim, CASE r.IsActive WHEN 1 THEN 'Ativa' ELSE 'Inativa' END AS Status,
                    r.Notes AS Observacoes
@@ -550,7 +559,7 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT g.Id, g.Description AS Descricao, ROUND(g.TotalAmount, 2) AS ValorTotal,
+            SELECT g.Id, g.Description AS Descricao, g.TotalAmount AS ValorTotal,
                    g.InstallmentCount AS Parcelas, g.FirstDueDate AS PrimeiroVencimento,
                    c.Name AS Categoria, COALESCE(a.Name, '') AS Conta, COALESCE(cc.Name, '') AS Cartao
             FROM InstallmentGroups g
@@ -565,12 +574,12 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT 'Despesa' AS Tipo, Description AS Descricao, ROUND(Amount, 2) AS Valor, DueDate AS Vencimento,
+            SELECT 'Despesa' AS Tipo, Description AS Descricao, Amount AS Valor, DueDate AS Vencimento,
                    Status, InstallmentNumber || '/' || InstallmentTotal AS Parcela
             FROM Expenses
             WHERE InstallmentGroupId = $id
             UNION ALL
-            SELECT 'Cartao' AS Tipo, Description AS Descricao, ROUND(Amount, 2) AS Valor, InvoiceMonth AS Vencimento,
+            SELECT 'Cartao' AS Tipo, Description AS Descricao, Amount AS Valor, InvoiceMonth AS Vencimento,
                    Status, InstallmentNumber || '/' || InstallmentTotal AS Parcela
             FROM CardPurchases
             WHERE InstallmentGroupId = $id
@@ -677,8 +686,8 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT Id, Name AS Nome, Institution AS Instituicao, ROUND(TotalLimit, 2) AS LimiteTotal,
-                   ROUND(AvailableLimit, 2) AS LimiteDisponivel, ClosingDay AS Fechamento,
+            SELECT Id, Name AS Nome, Institution AS Instituicao, TotalLimit AS LimiteTotal,
+                   AvailableLimit AS LimiteDisponivel, ClosingDay AS Fechamento,
                    DueDay AS Vencimento, CASE IsActive WHEN 1 THEN 'Ativo' ELSE 'Inativo' END AS Status
             FROM CreditCards
             WHERE $search = '' OR Name LIKE '%' || $search || '%' OR Institution LIKE '%' || $search || '%'
@@ -742,7 +751,7 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT cp.Id, cp.Description AS Descricao, ROUND(cp.Amount, 2) AS Valor, cp.PurchaseDate AS Data,
+            SELECT cp.Id, cp.Description AS Descricao, cp.Amount AS Valor, cp.PurchaseDate AS Data,
                    cc.Name AS Cartao, c.Name AS Categoria, cp.InvoiceMonth AS Fatura, cp.Status,
                    cp.InstallmentNumber || '/' || cp.InstallmentTotal AS Parcela, cp.Notes AS Observacoes
             FROM CardPurchases cp
@@ -846,7 +855,7 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT i.Id, cc.Name AS Cartao, i.InvoiceMonth AS Mes, ROUND(i.TotalAmount, 2) AS Valor,
+            SELECT i.Id, cc.Name AS Cartao, i.InvoiceMonth AS Mes, i.TotalAmount AS Valor,
                    i.ClosingDate AS Fechamento, i.DueDate AS Vencimento, i.Status,
                    COALESCE(a.Name, '') AS ContaPagamento, COALESCE(i.PaidAt, '') AS PagoEm
             FROM Invoices i
@@ -891,7 +900,7 @@ public sealed class FinanceService
         var dueDate = MonthDay(invoiceMonth, Convert.ToInt32(card.Rows[0]["DueDay"]));
         if (dueDate < closingDate)
         {
-            dueDate = dueDate.AddMonths(1);
+            dueDate = MonthDay(ParseMonth(invoiceMonth).AddMonths(1).ToString("yyyy-MM"), Convert.ToInt32(card.Rows[0]["DueDay"]));
         }
 
         _repository.Transaction((connection, transaction) =>
@@ -958,14 +967,14 @@ public sealed class FinanceService
             """
             WITH budget_rows AS (
                 SELECT b.Id, b.Month, c.Name AS Categoria, b.LimitAmount,
-                       COALESCE((SELECT SUM(e.Amount) FROM Expenses e WHERE e.CategoryId = b.CategoryId AND substr(e.DueDate, 1, 7) = b.Month), 0)
+                       COALESCE((SELECT SUM(e.Amount) FROM ExpenseAllocations e WHERE e.CategoryId = b.CategoryId AND substr(e.DueDate, 1, 7) = b.Month), 0)
                      + COALESCE((SELECT SUM(cp.Amount) FROM CardPurchases cp WHERE cp.CategoryId = b.CategoryId AND cp.InvoiceMonth = b.Month), 0) AS Gasto
                 FROM Budgets b
                 JOIN Categories c ON c.Id = b.CategoryId
                 WHERE $month = '' OR b.Month = $month
             )
-            SELECT Id, Month AS Mes, Categoria, ROUND(LimitAmount, 2) AS Limite, ROUND(Gasto, 2) AS Gasto,
-                   ROUND(CASE WHEN LimitAmount <= 0 THEN 0 ELSE (Gasto / LimitAmount) * 100 END, 2) AS Percentual,
+            SELECT Id, Month AS Mes, Categoria, LimitAmount AS Limite, Gasto,
+                   ROUND(CASE WHEN LimitAmount <= 0 THEN 0 ELSE (Gasto * 100.0 / LimitAmount) END, 2) AS Percentual,
                    CASE
                        WHEN LimitAmount > 0 AND Gasto >= LimitAmount THEN 'Limite ultrapassado'
                        WHEN LimitAmount > 0 AND Gasto >= LimitAmount * 0.90 THEN 'Alerta 90%'
@@ -1013,8 +1022,8 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT Id, Name AS Nome, ROUND(TargetAmount, 2) AS ValorObjetivo, ROUND(CurrentAmount, 2) AS ValorAtual,
-                   TargetDate AS DataAlvo, ROUND(CASE WHEN TargetAmount <= 0 THEN 0 ELSE CurrentAmount / TargetAmount * 100 END, 2) AS Percentual,
+            SELECT Id, Name AS Nome, TargetAmount AS ValorObjetivo, CurrentAmount AS ValorAtual,
+                   TargetDate AS DataAlvo, ROUND(CASE WHEN TargetAmount <= 0 THEN 0 ELSE CurrentAmount * 100.0 / TargetAmount END, 2) AS Percentual,
                    Description AS Descricao, Status
             FROM Goals
             WHERE $search = '' OR Name LIKE '%' || $search || '%'
@@ -1085,7 +1094,7 @@ public sealed class FinanceService
     {
         return _repository.Query(
             """
-            SELECT ContributionDate AS Data, ROUND(Amount, 2) AS Valor, Notes AS Observacoes
+            SELECT ContributionDate AS Data, Amount AS Valor, Notes AS Observacoes
             FROM GoalContributions
             WHERE GoalId = $goal
             ORDER BY ContributionDate DESC;
@@ -1159,9 +1168,9 @@ public sealed class FinanceService
         _repository.Transaction((connection, transaction) =>
         {
             var checkingId = Repository.Insert(connection, transaction,
-                "INSERT INTO Accounts(Name, Type, InitialBalance, CurrentBalance, IsActive, Notes) VALUES('Conta Corrente Demo', 'Conta corrente', 2500, 2500, 1, 'Conta de exemplo')", null);
+                "INSERT INTO Accounts(Name, Type, InitialBalance, CurrentBalance, IsActive, Notes) VALUES('Conta Corrente Demo', 'Conta corrente', 250000, 250000, 1, 'Conta de exemplo')", null);
             var walletId = Repository.Insert(connection, transaction,
-                "INSERT INTO Accounts(Name, Type, InitialBalance, CurrentBalance, IsActive, Notes) VALUES('Carteira Demo', 'Dinheiro fisico', 350, 350, 1, 'Carteira de exemplo')", null);
+                "INSERT INTO Accounts(Name, Type, InitialBalance, CurrentBalance, IsActive, Notes) VALUES('Carteira Demo', 'Dinheiro fisico', 35000, 35000, 1, 'Carteira de exemplo')", null);
             var salaryCategory = CategoryId(connection, transaction, "Salario");
             var foodCategory = CategoryId(connection, transaction, "Alimentacao");
             var homeCategory = CategoryId(connection, transaction, "Moradia");
@@ -1171,36 +1180,36 @@ public sealed class FinanceService
             var monthStart = new DateTime(today.Year, today.Month, 1);
 
             Repository.Execute(connection, transaction,
-                "INSERT INTO Incomes(Description, Amount, ReceivedDate, CategoryId, AccountId, PaymentMethod, Notes, Status) VALUES('Salario Demo', 5200, $date, $category, $account, 'PIX', 'Receita de exemplo', 'Recebido');",
+                "INSERT INTO Incomes(Description, Amount, ReceivedDate, CategoryId, AccountId, PaymentMethod, Notes, Status) VALUES('Salario Demo', 520000, $date, $category, $account, 'PIX', 'Receita de exemplo', 'Recebido');",
                 P("$date", monthStart.AddDays(4), "$category", salaryCategory, "$account", checkingId));
             Repository.Execute(connection, transaction,
-                "INSERT INTO Expenses(Description, Amount, ExpenseDate, DueDate, CategoryId, AccountId, PaymentMethod, Notes, Status) VALUES('Mercado Demo', 640, $date, $due, $category, $account, 'Debito', 'Despesa de exemplo', 'Pago');",
+                "INSERT INTO Expenses(Description, Amount, ExpenseDate, DueDate, CategoryId, AccountId, PaymentMethod, Notes, Status) VALUES('Mercado Demo', 64000, $date, $due, $category, $account, 'Debito', 'Despesa de exemplo', 'Pago');",
                 P("$date", today.AddDays(-6), "$due", today.AddDays(-6), "$category", foodCategory, "$account", checkingId));
             Repository.Execute(connection, transaction,
-                "INSERT INTO Expenses(Description, Amount, ExpenseDate, DueDate, CategoryId, AccountId, PaymentMethod, Notes, Status) VALUES('Aluguel Demo', 1500, $date, $due, $category, $account, 'Transferencia', 'Despesa pendente de exemplo', 'Pendente');",
+                "INSERT INTO Expenses(Description, Amount, ExpenseDate, DueDate, CategoryId, AccountId, PaymentMethod, Notes, Status) VALUES('Aluguel Demo', 150000, $date, $due, $category, $account, 'Transferencia', 'Despesa pendente de exemplo', 'Pendente');",
                 P("$date", today, "$due", today.AddDays(4), "$category", homeCategory, "$account", checkingId));
             Repository.Execute(connection, transaction,
-                "INSERT INTO RecurringExpenses(Description, Amount, DayOfMonth, CategoryId, AccountId, PaymentMethod, Notes, StartDate, IsActive) VALUES('Internet Demo', 119.90, 12, $category, $account, 'Debito automatico', 'Recorrencia de exemplo', $start, 1);",
+                "INSERT INTO RecurringExpenses(Description, Amount, DayOfMonth, CategoryId, AccountId, PaymentMethod, Notes, StartDate, IsActive) VALUES('Internet Demo', 11990, 12, $category, $account, 'Debito automatico', 'Recorrencia de exemplo', $start, 1);",
                 P("$category", homeCategory, "$account", checkingId, "$start", monthStart));
 
             var cardId = Repository.Insert(connection, transaction,
-                "INSERT INTO CreditCards(Name, Institution, TotalLimit, AvailableLimit, ClosingDay, DueDay, IsActive) VALUES('Cartao Demo', 'Banco Demo', 4000, 4000, 25, 8, 1)", null);
+                "INSERT INTO CreditCards(Name, Institution, TotalLimit, AvailableLimit, ClosingDay, DueDay, IsActive) VALUES('Cartao Demo', 'Banco Demo', 400000, 400000, 25, 8, 1)", null);
             var demoPurchaseDate = today.AddDays(-2);
             var demoInvoiceMonth = (demoPurchaseDate.Day > 25 ? demoPurchaseDate.AddMonths(1) : demoPurchaseDate).ToString("yyyy-MM");
             Repository.Execute(connection, transaction,
-                "INSERT INTO CardPurchases(Description, Amount, PurchaseDate, CreditCardId, CategoryId, InvoiceMonth, Notes, Status) VALUES('Cinema Demo', 90, $date, $card, $category, $month, 'Compra de exemplo', 'Aberta');",
+                "INSERT INTO CardPurchases(Description, Amount, PurchaseDate, CreditCardId, CategoryId, InvoiceMonth, Notes, Status) VALUES('Cinema Demo', 9000, $date, $card, $category, $month, 'Compra de exemplo', 'Aberta');",
                 P("$date", demoPurchaseDate, "$card", cardId, "$category", leisureCategory, "$month", demoInvoiceMonth));
             Repository.Execute(connection, transaction,
-                "INSERT INTO Budgets(Month, CategoryId, LimitAmount) VALUES($month, $category, 900) ON CONFLICT(Month, CategoryId) DO UPDATE SET LimitAmount = excluded.LimitAmount;",
+                "INSERT INTO Budgets(Month, CategoryId, LimitAmount) VALUES($month, $category, 90000) ON CONFLICT(Month, CategoryId) DO UPDATE SET LimitAmount = excluded.LimitAmount;",
                 P("$month", monthStart.ToString("yyyy-MM"), "$category", foodCategory));
             Repository.Execute(connection, transaction,
-                "INSERT INTO Budgets(Month, CategoryId, LimitAmount) VALUES($month, $category, 500) ON CONFLICT(Month, CategoryId) DO UPDATE SET LimitAmount = excluded.LimitAmount;",
+                "INSERT INTO Budgets(Month, CategoryId, LimitAmount) VALUES($month, $category, 50000) ON CONFLICT(Month, CategoryId) DO UPDATE SET LimitAmount = excluded.LimitAmount;",
                 P("$month", monthStart.ToString("yyyy-MM"), "$category", leisureCategory));
             var goalId = Repository.Insert(connection, transaction,
-                "INSERT INTO Goals(Name, TargetAmount, CurrentAmount, TargetDate, Description, Status) VALUES('Reserva Demo', 10000, 1200, $date, 'Meta de exemplo', 'Ativa')",
+                "INSERT INTO Goals(Name, TargetAmount, CurrentAmount, TargetDate, Description, Status) VALUES('Reserva Demo', 1000000, 120000, $date, 'Meta de exemplo', 'Ativa')",
                 P("$date", today.AddMonths(8)));
             Repository.Execute(connection, transaction,
-                "INSERT INTO GoalContributions(GoalId, Amount, ContributionDate, Notes) VALUES($goal, 1200, $date, 'Aporte inicial demo');",
+                "INSERT INTO GoalContributions(GoalId, Amount, ContributionDate, Notes) VALUES($goal, 120000, $date, 'Aporte inicial demo');",
                 P("$goal", goalId, "$date", today.AddDays(-10)));
             _ = cardCategory;
             _ = walletId;
@@ -1215,6 +1224,7 @@ public sealed class FinanceService
         {
             foreach (var table in new[]
             {
+                "Attachments", "ExpenseSplits", "ImportedTransactions", "Reconciliations", "Transfers",
                 "GoalContributions", "Goals", "Budgets", "Invoices", "CardPurchases",
                 "Expenses", "RecurringExpenses", "Incomes", "InstallmentGroups", "CreditCards", "Accounts"
             })
@@ -1255,7 +1265,7 @@ public sealed class FinanceService
         return _repository.Query(
             $"""
             WITH entries AS ({ReportEntriesSql})
-            SELECT c.Name AS Categoria, ROUND(SUM(e.Amount), 2) AS Total, COUNT(*) AS Lancamentos
+            SELECT c.Name AS Categoria, SUM(e.Amount) AS Total, COUNT(*) AS Lancamentos
             FROM entries e
             JOIN Categories c ON c.Id = e.CategoryId
             WHERE e.Type = 'Despesa' AND {ReportFilterSql}
@@ -1276,7 +1286,7 @@ public sealed class FinanceService
         return _repository.Query(
             """
             SELECT cc.Name AS Cartao, cp.InvoiceMonth AS Mes, c.Name AS Categoria,
-                   ROUND(SUM(cp.Amount), 2) AS Total, COUNT(*) AS Compras
+                   SUM(cp.Amount) AS Total, COUNT(*) AS Compras
             FROM CardPurchases cp
             JOIN CreditCards cc ON cc.Id = cp.CreditCardId
             JOIN Categories c ON c.Id = cp.CategoryId
@@ -1297,9 +1307,9 @@ public sealed class FinanceService
             $"""
             WITH entries AS ({ReportEntriesSql})
             SELECT e.Month AS Mes,
-                   ROUND(SUM(CASE WHEN e.Type = 'Receita' THEN e.Amount ELSE 0 END), 2) AS Receitas,
-                   ROUND(SUM(CASE WHEN e.Type = 'Despesa' THEN e.Amount ELSE 0 END), 2) AS Despesas,
-                   ROUND(SUM(CASE WHEN e.Type = 'Receita' THEN e.Amount ELSE -e.Amount END), 2) AS Saldo
+                   SUM(CASE WHEN e.Type = 'Receita' THEN e.Amount ELSE 0 END) AS Receitas,
+                   SUM(CASE WHEN e.Type = 'Despesa' THEN e.Amount ELSE 0 END) AS Despesas,
+                   SUM(CASE WHEN e.Type = 'Receita' THEN e.Amount ELSE -e.Amount END) AS Saldo
             FROM entries e
             WHERE {ReportFilterSql}
               AND ($status <> '' OR e.Type <> 'Receita' OR e.Status = 'Recebido')
@@ -1313,7 +1323,7 @@ public sealed class FinanceService
         SELECT 'Receita' AS Type, Amount, ReceivedDate AS Date, substr(ReceivedDate, 1, 7) AS Month,
                CategoryId, AccountId, NULL AS CreditCardId, Status FROM Incomes
         UNION ALL
-        SELECT 'Despesa', Amount, DueDate, substr(DueDate, 1, 7), CategoryId, AccountId, CreditCardId, Status FROM Expenses
+        SELECT 'Despesa', Amount, DueDate, substr(DueDate, 1, 7), CategoryId, AccountId, CreditCardId, Status FROM ExpenseAllocations
         UNION ALL
         SELECT 'Despesa', Amount, PurchaseDate, InvoiceMonth, CategoryId, NULL, CreditCardId, Status FROM CardPurchases
         """;
@@ -1355,7 +1365,9 @@ public sealed class FinanceService
             SET CurrentBalance = InitialBalance
                 + COALESCE((SELECT SUM(i.Amount) FROM Incomes i WHERE i.AccountId = Accounts.Id AND i.Status = 'Recebido'), 0)
                 - COALESCE((SELECT SUM(e.Amount) FROM Expenses e WHERE e.AccountId = Accounts.Id AND e.Status = 'Pago'), 0)
-                - COALESCE((SELECT SUM(inv.TotalAmount) FROM Invoices inv WHERE inv.PaidAccountId = Accounts.Id AND inv.Status = 'Paga'), 0);
+                - COALESCE((SELECT SUM(inv.TotalAmount) FROM Invoices inv WHERE inv.PaidAccountId = Accounts.Id AND inv.Status = 'Paga'), 0)
+                + COALESCE((SELECT SUM(t.Amount) FROM Transfers t WHERE t.ToAccountId = Accounts.Id), 0)
+                - COALESCE((SELECT SUM(t.Amount) FROM Transfers t WHERE t.FromAccountId = Accounts.Id), 0);
             """);
     }
 
@@ -1401,7 +1413,7 @@ public sealed class FinanceService
 
     private decimal Money(string sql, IReadOnlyDictionary<string, object?>? parameters = null)
     {
-        return ToDecimal(_repository.Scalar(sql, parameters) ?? 0);
+        return MoneyStorage.FromCents(_repository.Scalar(sql, parameters) ?? 0);
     }
 
     private int Number(string sql, IReadOnlyDictionary<string, object?>? parameters = null)

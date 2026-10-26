@@ -3,9 +3,12 @@ using FinanceiroApp.Services;
 
 namespace FinanceiroApp.Views;
 
-public sealed class MainForm : Form
+public sealed partial class MainForm : Form
 {
     private readonly FinanceService _service;
+    private readonly SyncClient _syncClient;
+    private readonly System.Windows.Forms.Timer _syncTimer = new() { Interval = 120000 };
+    private bool _syncing;
     private readonly Panel _workspace = new() { Dock = DockStyle.Fill, BackColor = Ui.Background };
     private readonly FlowLayoutPanel _menu = new()
     {
@@ -27,6 +30,7 @@ public sealed class MainForm : Form
     internal MainForm(FinanceService service)
     {
         _service = service;
+        _syncClient = new SyncClient(service);
         Text = "Financeiro Pessoal";
         MinimumSize = new Size(1180, 720);
         StartPosition = FormStartPosition.CenterScreen;
@@ -47,11 +51,26 @@ public sealed class MainForm : Form
             ["Orcamentos"] = () => new BudgetsView(_service),
             ["Metas"] = () => new GoalsView(_service),
             ["Relatorios"] = () => new ReportsView(_service),
+            ["Operacoes"] = () => new BankingView(_service),
+            ["Seguranca"] = () => new SecurityView(_service),
+            ["Sincronizacao"] = () => new SyncView(_service, _syncClient),
             ["Configuracoes"] = () => new SettingsView(_service)
         };
 
         BuildLayout();
+        InitializeSecurity();
         ShowView("Dashboard");
+        _syncTimer.Tick += async (_, _) =>
+        {
+            if (_syncing || _locking || !_syncClient.Connected || !_syncClient.AutoSync) return;
+            _syncing = true;
+            try { await _syncClient.SynchronizeAsync(); }
+            catch (Financeiro.Sync.Contracts.SyncConflictException) { _syncClient.AutoSync = false; }
+            catch (Exception) { }
+            finally { _syncing = false; }
+        };
+        _syncTimer.Start();
+        FormClosed += (_, _) => { _syncTimer.Dispose(); _syncClient.Dispose(); };
     }
 
     private void BuildLayout()

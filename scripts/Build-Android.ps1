@@ -2,8 +2,8 @@ param(
     [string]$AndroidSdkDirectory = 'C:\Program Files (x86)\Android\android-sdk',
     [string]$JavaSdkDirectory = 'C:\Program Files\Android\openjdk\jdk-21.0.8',
     [string]$OutputDirectory,
-    [int]$VersionCode = 1,
-    [string]$DisplayVersion = '1.0.0'
+    [int]$VersionCode = 10100,
+    [string]$DisplayVersion = '1.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +21,7 @@ if ($projectRoot -match '[^\x00-\x7F]') {
         throw 'O diretorio auxiliar nao esta dentro da pasta de compilacao esperada.'
     }
     New-Item -ItemType Directory -Path $buildRoot -Force | Out-Null
-    & robocopy $projectRoot $buildRoot /MIR /XD .git bin obj artifacts .vs /XF *.db *.db-* *.keystore *.jks signing-password.xml /NFL /NDL /NJH /NJS /NP
+    & robocopy $projectRoot $buildRoot /MIR /XD .git bin obj artifacts .vs private /XF *.db *.db-* *.keystore *.jks *.finbackup *.plain *.lock.json .env .env.* signing-password.xml /NFL /NDL /NJH /NJS /NP
     if ($LASTEXITCODE -gt 7) { throw 'Falha ao preparar a copia de compilacao Android.' }
 }
 $keytool = Join-Path $JavaSdkDirectory 'bin\keytool.exe'

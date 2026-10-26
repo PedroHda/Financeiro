@@ -38,11 +38,14 @@ public partial class MainActivity : Activity
         {
             _service = new FinanceService(Path.Combine(FilesDir!.AbsolutePath, "financeiro.db"));
             _service.Initialize();
+            _appLock = new AppLockService(_service.DatabasePath + ".lock.json");
+            _syncClient = new SyncClient(_service);
             _dark = _service.GetSetting("MobileTheme") == "Escuro";
             _hidden = _service.GetSetting("MobileHideAmounts") == "true";
             _screen = savedInstanceState?.GetString("screen") ?? "home";
             if (DateTime.TryParseExact(savedInstanceState?.GetString("month"), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var month)) _month = month;
             BuildShell();
+            if (_appLock.Enabled) LockMobile();
         }
         catch (Exception ex)
         {
@@ -125,15 +128,16 @@ public partial class MainActivity : Activity
 
     private static string TabFor(string screen) => screen switch
     {
-        "accounts" or "cards" or "purchases" or "invoices" => "wallet",
-        "budgets" or "goals" or "recurring" or "installments" => "planning",
-        "categories" or "reports" or "settings" => "more",
+        "accounts" or "cards" or "purchases" or "invoices" or "transfers" => "wallet",
+        "budgets" or "goals" or "recurring" or "installments" or "forecast" => "planning",
+        "categories" or "reports" or "settings" or "operations" or "reconciliation" or "import" or "rules" or "security" or "sync" => "more",
         "overdue" => "home",
         _ => screen
     };
 
     private void Navigate(string screen)
     {
+        if (_busy) return;
         _screen = screen;
         BuildShell();
     }
@@ -160,6 +164,14 @@ public partial class MainActivity : Activity
             case "categories": ShowCategories(); break;
             case "reports": ShowReports(); break;
             case "settings": ShowSettings(); break;
+            case "operations": ShowOperations(); break;
+            case "transfers": ShowTransfers(); break;
+            case "reconciliation": ShowReconciliation(); break;
+            case "forecast": ShowForecast(); break;
+            case "import": ShowImport(); break;
+            case "rules": ShowRules(); break;
+            case "security": ShowSecurity(); break;
+            case "sync": ShowSync(); break;
             default: ShowMore(); break;
         }
     }
@@ -245,6 +257,7 @@ public partial class MainActivity : Activity
 
     private void Run(Action action)
     {
+        if (_busy) return;
         try { action(); }
         catch (Exception ex)
         {

@@ -27,9 +27,9 @@ O identificador do aplicativo é `com.pedrohda.financeiro`. Para atualizar uma i
 | Movimentos | Extrato unificado, busca, seletor de mês, tipo e status, inclusão e edição |
 | Planejar | Orçamentos com alertas, metas com aportes e histórico, recorrências e parcelamentos |
 | Carteira | Contas, saldos, cartões, limites, compras e fechamento/pagamento de faturas |
-| Mais | Categorias, relatórios, exportação CSV, aparência, privacidade e backup |
+| Mais | Categorias, relatórios, operações, importação OFX/CSV, conciliação, sincronização, PIN/biometria e backups |
 
-Os botões de inclusão abrem formulários com campos, seletores e calendário nativos. A validação mantém o formulário aberto; exclusões exigem confirmação. Não há cadastro obrigatório, anúncios, conexão com servidores ou solicitação de credenciais bancárias.
+Os botões de inclusão abrem formulários com campos, seletores e calendário nativos. A validação mantém o formulário aberto; exclusões exigem confirmação. Não há cadastro obrigatório, anúncios ou solicitação de credenciais bancárias. A conexão com um servidor próprio só é usada quando o usuário configura a sincronização.
 
 ### Aparência e privacidade
 
@@ -39,7 +39,17 @@ Os botões de inclusão abrem formulários com campos, seletores e calendário n
 - Gráficos de categorias e barras de progresso de orçamentos/metas.
 - Datas e moeda em português do Brasil.
 
-Ocultar valores é uma função visual, não autenticação. O app não realiza Pix, transferências bancárias, login no banco, Open Finance ou sincronização automática.
+Ocultar valores é uma função visual, não autenticação. O app não realiza Pix, transferências bancárias, login no banco ou Open Finance. O PIN é um bloqueio de interface; o SQLite local continua sem criptografia. A sincronização opcional pode ocorrer a cada dois minutos durante o uso, após login e ativação, mas não com o aplicativo fechado.
+
+### Novas operações
+
+- **Mais > Operações**: transferências entre contas, conciliação, OFX/CSV, regras de categoria e previsão de saldo.
+- A prévia de importação tem seleção por registro, categorias, alerta de possíveis duplicados e páginas de 50 itens.
+- Em **Movimentos**, pressione uma receita/despesa por mais tempo para duplicar, alterar status, adicionar/exportar comprovantes ou dividir uma despesa entre categorias.
+- **Mais > Preferências e backup > Segurança**: PIN de 6 a 12 dígitos e biometria em aparelhos Android 9/API 28 ou superiores com suporte. Em versões anteriores, use o PIN. Após dois minutos em segundo plano, o desbloqueio é exigido novamente.
+- **Backup protegido** exporta um `.finbackup` com senha; **Restaurar backup protegido** o importa no Android ou Windows.
+
+Veja os limites e as regras completas em [OPERACOES.md](OPERACOES.md) e [SEGURANCA.md](SEGURANCA.md).
 
 ## Usar os dados do Windows no celular
 
@@ -48,9 +58,9 @@ Ocultar valores é uma função visual, não autenticação. O app não realiza 
 3. No Android, entre em **Mais > Preferências e backup > Restaurar backup**.
 4. Escolha o arquivo e confirme a substituição.
 
-O caminho inverso é **Exportar backup** no Android e **Restaurar** no Windows. A restauração substitui todo o banco de destino; não mescla movimentações. Mantenha um aparelho como base principal para evitar sobrescrever alterações feitas separadamente nos dois.
+O caminho inverso é **Exportar backup** no Android e **Restaurar** no Windows. A restauração substitui todo o banco de destino; não mescla movimentações. Para uso simultâneo, configure os dois na mesma conta HTTPS em **Sincronização**; veja [SINCRONIZACAO.md](SINCRONIZACAO.md). Não misture restauração de snapshots com edições independentes sem conferir os conflitos.
 
-O seletor de arquivos do Android dá acesso apenas ao documento escolhido, sem permissão ampla ao armazenamento. O banco fica no diretório privado do aplicativo. Backups e CSV exportados não são criptografados.
+O seletor de arquivos do Android dá acesso apenas ao documento escolhido, sem permissão ampla ao armazenamento. O banco fica no diretório privado do aplicativo. Backups `.db` e CSV exportados não são criptografados; `.finbackup` usa criptografia autenticada. A permissão de internet atende a sincronização opcional, e as permissões biométricas atendem ao desbloqueio. Não há acesso às credenciais do banco.
 
 ## Compilar no Windows
 

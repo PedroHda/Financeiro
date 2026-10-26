@@ -80,3 +80,11 @@ Os valores esperados pressupõem somente as movimentações desse roteiro na con
 - Confira pop-ups em escalas de Windows de 100%, 125% e 150%, inclusive os campos finais de recorrências.
 - Execute a pasta publicada em ambiente de teste e confira a biblioteca SQLite.
 - Distribua a pasta inteira. Publicar com sucesso não equivale a testar um instalador ou todos os computadores de destino.
+
+## Novos testes da versão 1.1
+
+Além dos testes originais, a solução cobre migração de bancos REAL para centavos, precisão em valores grandes, transferências, conciliação sem ajuste automático, importação atômica/duplicidades/OFX/CSV, previsão, rateios, comprovantes, PIN e backup criptografado adulterado/senha errada.
+
+`Financeiro.Api.Tests` usa um servidor em memória e bancos SQLite temporários para testar isolamento de usuários, IDs locais distintos, sincronização, exclusões, anexos, contribuições concorrentes e escolhas de conflitos. Não usa dados pessoais nem depende de PostgreSQL instalado. Validação PostgreSQL/Docker e biometria física continuam pendentes.
+
+`scripts/Test-AndroidSmoke.ps1` só aceita emulador e limpa os dados dessa instalação de teste. Nunca o use em aparelho com seus dados. O CI anexa screenshots/hierarquia; teste também criação/edição, importação, bloqueio, restauração e conflitos em aparelhos reais antes de distribuir amplamente.

@@ -7,5 +7,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
+    <PackageReference Include="jcoliz.OfxSharp.NetStandard" Version="3.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Financeiro.Sync.Contracts\Financeiro.Sync.Contracts.csproj" />
   </ItemGroup>
 </Project>
