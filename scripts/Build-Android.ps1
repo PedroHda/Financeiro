@@ -3,7 +3,7 @@ param(
     [string]$JavaSdkDirectory = 'C:\Program Files\Android\openjdk\jdk-21.0.8',
     [string]$OutputDirectory,
     [int]$VersionCode = 10100,
-    [string]$DisplayVersion = '1.1.0'
+    [ValidatePattern('^\d+\.\d+\.\d+$')][string]$DisplayVersion = '1.1.0'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -67,7 +67,8 @@ try {
         Where-Object { $_.Name -match '^\d+\.\d+\.\d+$' } | Sort-Object { [Version]$_.Name } -Descending | Select-Object -First 1
     if (-not $buildTools) { throw 'Android build-tools nao encontrado.' }
     $aligned = Join-Path $OutputDirectory 'Financeiro-aligned.tmp.apk'
-    $destination = Join-Path $OutputDirectory 'Financeiro-Android.apk'
+    $apkName = "Financeiro-$DisplayVersion.apk"
+    $destination = Join-Path $OutputDirectory $apkName
     & (Join-Path $buildTools.FullName 'zipalign.exe') -f -p 4 $package $aligned
     if ($LASTEXITCODE -ne 0) { throw 'Falha no alinhamento do APK.' }
     $previousJavaHome = $env:JAVA_HOME
@@ -82,7 +83,7 @@ try {
         if (Test-Path -LiteralPath $aligned) { Remove-Item -LiteralPath $aligned -Force }
     }
     $checksum = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
-    [IO.File]::WriteAllText((Join-Path $OutputDirectory 'Financeiro-Android.apk.sha256'), "$checksum  Financeiro-Android.apk`r`n")
+    [IO.File]::WriteAllText(($destination + '.sha256'), "$checksum  $apkName`r`n")
     Write-Output "APK: $destination"
     Write-Output "SHA256: $checksum"
     Write-Output "Chave de atualizacao preservada em: $signingDirectory"

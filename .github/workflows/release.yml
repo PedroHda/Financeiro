@@ -65,21 +65,23 @@ jobs:
             dotnet build Financeiro.Mobile/Financeiro.Mobile.csproj -c Release -p:AndroidBuildApplicationPackage=true -p:AndroidKeyStore=false "-p:ApplicationVersion=$code" "-p:ApplicationDisplayVersion=$version" "-p:AndroidSdkDirectory=$env:ANDROID_HOME" "-p:JavaSdkDirectory=$env:JAVA_HOME"
             if ($LASTEXITCODE -ne 0) { throw 'Falha ao compilar Android.' }
             New-Item -ItemType Directory artifacts/apk -Force | Out-Null
+            $apkName = "Financeiro-$version.apk"
+            $destination = Join-Path $PWD "artifacts/apk/$apkName"
             $tools = Join-Path $env:ANDROID_HOME 'build-tools/36.0.0'
             & "$tools/zipalign.exe" -f -p 4 Financeiro.Mobile/bin/Release/net10.0-android/com.pedrohda.financeiro.apk artifacts/apk/aligned.apk
             if ($LASTEXITCODE -ne 0) { throw 'Falha no alinhamento.' }
-            & "$tools/apksigner.bat" sign --ks $key --ks-key-alias $env:ANDROID_KEY_ALIAS --ks-pass env:ANDROID_STORE_PASSWORD --key-pass env:ANDROID_STORE_PASSWORD --out artifacts/apk/Financeiro-Android.apk artifacts/apk/aligned.apk
+            & "$tools/apksigner.bat" sign --ks $key --ks-key-alias $env:ANDROID_KEY_ALIAS --ks-pass env:ANDROID_STORE_PASSWORD --key-pass env:ANDROID_STORE_PASSWORD --out $destination artifacts/apk/aligned.apk
             if ($LASTEXITCODE -ne 0) { throw 'Falha na assinatura.' }
-            & "$tools/apksigner.bat" verify artifacts/apk/Financeiro-Android.apk
+            & "$tools/apksigner.bat" verify $destination
             if ($LASTEXITCODE -ne 0) { throw 'Assinatura invalida.' }
             Remove-Item artifacts/apk/aligned.apk
-            $hash = (Get-FileHash artifacts/apk/Financeiro-Android.apk -Algorithm SHA256).Hash.ToLowerInvariant()
-            [IO.File]::WriteAllText((Join-Path $PWD 'artifacts/apk/Financeiro-Android.apk.sha256'), "$hash  Financeiro-Android.apk`n")
+            $hash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256).Hash.ToLowerInvariant()
+            [IO.File]::WriteAllText(($destination + '.sha256'), "$hash  $apkName`n")
           } finally { if (Test-Path -LiteralPath $key) { Remove-Item -LiteralPath $key -Force } }
       - uses: actions/upload-artifact@v7
         with:
           name: release-android
-          path: artifacts/apk/Financeiro-Android.apk*
+          path: artifacts/apk/Financeiro-*.apk*
   publish:
     needs: [windows, android]
     if: startsWith(github.ref, 'refs/tags/')

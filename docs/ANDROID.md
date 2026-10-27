@@ -7,7 +7,7 @@ Aplicativo nativo Android em C#, com .NET 10 e controles próprios para toque. A
 O arquivo gerado é:
 
 ```text
-artifacts/apk/Financeiro-Android.apk
+artifacts/apk/Financeiro-1.1.0.apk
 ```
 
 1. Transfira o APK para o celular.
@@ -103,10 +103,10 @@ A senha é aleatória e protegida pelo usuário Windows via DPAPI; o arquivo de 
 Exemplo de nova versão:
 
 ```powershell
-.\scripts\Build-Android.ps1 -VersionCode 2 -DisplayVersion '1.0.1'
+.\scripts\Build-Android.ps1 -VersionCode 10101 -DisplayVersion '1.1.1'
 ```
 
-O script gera um APK assinado para instalação direta e `Financeiro-Android.apk.sha256`. Não publica na Play Store. A publicação em loja requer procedimentos próprios, conta de desenvolvedor e políticas da plataforma.
+O nome segue `Financeiro-<versao>.apk`. O exemplo acima gera `Financeiro-1.1.1.apk` e `Financeiro-1.1.1.apk.sha256`; a versão no nome corresponde à versão compilada. O mesmo padrão é usado nas releases do GitHub. Não publica na Play Store. A publicação em loja requer procedimentos próprios, conta de desenvolvedor e políticas da plataforma.
 
 ## Organização do código
 

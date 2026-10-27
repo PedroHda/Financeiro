@@ -18,7 +18,7 @@ Parâmetros: `-Version`, `-OutputDirectory`, `-InnoSetupCompiler`.
 .\scripts\Build-Android.ps1
 ```
 
-Gera `artifacts/apk/Financeiro-Android.apk` e SHA-256, versão 1.1.0/código 10100. Preserve a chave e use códigos crescentes para atualizar mantendo os dados. Há cópia auxiliar ASCII para diretórios com acentos.
+Gera `artifacts/apk/Financeiro-1.1.0.apk` e `Financeiro-1.1.0.apk.sha256`, versão 1.1.0/código 10100. O nome segue sempre `Financeiro-<versao>.apk`, tanto no script local (`-DisplayVersion`) quanto nas releases do GitHub. Preserve a chave e use códigos crescentes para atualizar mantendo os dados. Há cópia auxiliar ASCII para diretórios com acentos.
 
 A chave e a senha DPAPI ficam em `%LOCALAPPDATA%/FinanceiroApp/Signing`, fora do Git. Preserve a recuperação com segurança: o XML DPAPI depende do perfil Windows, não é uma senha portátil. Veja [ANDROID.md](ANDROID.md).
 

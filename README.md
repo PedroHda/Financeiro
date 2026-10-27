@@ -28,7 +28,7 @@ Para gerar o APK assinado no Windows:
 .\scripts\Build-Android.ps1
 ```
 
-Resultado: `artifacts/apk/Financeiro-Android.apk`, acompanhado do checksum SHA-256. A solução Android é **Financeiro.Mobile.sln**; a solução **Financeiro.sln** continua voltada ao desktop e aos testes.
+Resultado: `artifacts/apk/Financeiro-1.1.0.apk`, acompanhado de `Financeiro-1.1.0.apk.sha256`. O padrão é `Financeiro-<versao>.apk`, usando a versão informada em `-DisplayVersion` ou na release. A solução Android é **Financeiro.Mobile.sln**; a solução **Financeiro.sln** continua voltada ao desktop e aos testes.
 
 Veja instalação no celular, requisitos Android, assinatura e referências de design em **[docs/ANDROID.md](docs/ANDROID.md)**.
 
